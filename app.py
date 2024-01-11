@@ -4,6 +4,7 @@ import os
 from collections import OrderedDict
 import json
 from datetime import datetime
+import bcrypt
 
 app = Flask(__name__)
 
@@ -21,24 +22,26 @@ def init_db():
     cursor = conn.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
-            id SERIAL PRIMARY KEY, 
-            firstName TEXT, 
-            lastName TEXT, 
-            DOB INTEGER, 
-            Location TEXT, 
+            id SERIAL PRIMARY KEY,
+            Username TEXT UNIQUE,
+            firstName TEXT,
+            lastName TEXT,
+            DOB DATE,
+            Location TEXT,
             Career TEXT,
             hobbies TEXT[],
             joinDate TIMESTAMP,
             socials JSONB,
-            Description TEXT
+            Description TEXT,
+            Password TEXT
         )''')
-    # Sample data
+    # Sample data with username and hashed password
     sample_data = [
-        ('John', 'Doe', 1990, 'New York', 'Engineer', ['scuba diving', 'basketball'], datetime.now(), json.dumps({"meta": "@meta_user", "twitter": "@twitter_user"}), 'Software developer at XYZ'),
-        ('Jane', 'Doe', 1992, 'Los Angeles', 'Doctor', ['knitting', 'chess'], datetime.now(), json.dumps({"instagram": "@insta_user", "linkedin": "@linkedin_user"}), 'Doctor at ABC hospital'),
+        ('John', 'Doe', datetime(1990, 4, 15), 'New York', 'Engineer', ['scuba diving', 'basketball'], datetime.now(), json.dumps({"meta": "@meta_user", "twitter": "@twitter_user"}), 'Software developer at XYZ', 'john_doe', bcrypt.hashpw('johnpassword'.encode('utf-8'), bcrypt.gensalt())),
+        ('Jane', 'Doe', datetime(1990, 4, 15), 'Los Angeles', 'Doctor', ['knitting', 'chess'], datetime.now(), json.dumps({"instagram": "@insta_user", "linkedin": "@linkedin_user"}), 'Doctor at ABC hospital', 'jane_doe', bcrypt.hashpw('janepassword'.encode('utf-8'), bcrypt.gensalt())),
         # Add more data as needed
     ]
-    cursor.executemany('INSERT INTO users (firstName, lastName, DOB, Location, Career, hobbies, joinDate, socials, Description) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING', sample_data)
+    cursor.executemany('INSERT INTO users (firstName, lastName, DOB, Location, Career, hobbies, joinDate, socials, Description, Username, Password) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING', sample_data)
     cursor.close()
     conn.close()
 
@@ -68,6 +71,41 @@ def get_user_by_id(user_id):
     ordered_user = OrderedDict(sorted(filtered_user.items(), key=lambda x: x[0].lower()))
 
     return jsonify(ordered_user)
+
+@app.route('/signup', methods=['POST'])
+def signup():
+    data = request.json
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    # Hash the password
+    hashed_password = bcrypt.hashpw(data['Password'].encode('utf-8'), bcrypt.gensalt())
+
+    # SQL for upsert
+    upsert_sql = '''
+    INSERT INTO users (firstName, lastName, DOB, Location, Career, hobbies, joinDate, socials, Description, Username, Password)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    ON CONFLICT (Username)
+    DO UPDATE SET
+        firstName = EXCLUDED.firstName,
+        lastName = EXCLUDED.lastName,
+        DOB = EXCLUDED.DOB,
+        Location = EXCLUDED.Location,
+        Career = EXCLUDED.Career,
+        hobbies = EXCLUDED.hobbies,
+        joinDate = EXCLUDED.joinDate,
+        socials = EXCLUDED.socials,
+        Description = EXCLUDED.Description,
+        Password = EXCLUDED.Password;
+    '''
+
+    # Execute upsert
+    cursor.execute(upsert_sql, (data['firstName'], data['lastName'], data['DOB'], data['Location'], data['Career'], data['hobbies'], data['joinDate'], json.dumps(data['socials']), data['Description'], data['Username'], hashed_password))
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+    return jsonify({"message": "Signup complete"}), 200
 
 if __name__ == '__main__':
     init_db()
