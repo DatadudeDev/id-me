@@ -100,6 +100,8 @@ docker run -p 5000:5000 id-me
 
 Created and maintained by [Gabriel Stanier](https://github.com/DatadudeDev)
 
+Portfolio: https://datadude.dev
+
 ---
 
 ## 📢 Contributions
